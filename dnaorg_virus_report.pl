@@ -1,5 +1,4 @@
-#!/usr/bin/env perl
-# EPN, Thu Jun  4 14:45:12 2015
+#!/usr/bin/env perl EPN, Thu Jun 4 14:45:12 2015
 #
 use strict;
 use warnings;
@@ -8,26 +7,31 @@ use Time::HiRes qw(gettimeofday);
 
 # examine an output file from dnaorg_compare_genomes and find and report 'anomalies'
 
-my $usage  = "\ndnaorg_virus_report.pl\n";
-$usage .= "\t<output from dnaorg_compare_genomes.pl>\n";
-$usage .= "\n";
-$usage .= " BASIC OPTIONS:\n";
-$usage .= "  -F4     <f>: set threshold for anomaly 4 to <f> (gene count/strand order differs from >= <f> fraction of genomes)            [df: 0.99]\n";
-$usage .= "  -F5and6 <f>: set threshold for anomaly 5 and 6 to <f> (class has >= 1 gene on a strand which <f> fraction of genomes do not) [df: 0.99]\n";
-$usage .= "  -F7     <f>: set threshold for anomaly 7 to <f> (genome length deviates by more than <f> fraction from mean)                 [df: 0.25]\n";
-$usage .= "\n";
-
 my $executable     = $0;
 my $F4             = undef;
 my $F5and6         = undef;
 my $F7             = undef;
+my $F8             = undef;
 my $default_F4     = 0.99;
 my $default_F5and6 = 0.99;
 my $default_F7     = 0.25;
+my $default_F8     = 0.25;
+
+my $usage  = "\ndnaorg_virus_report.pl\n";
+$usage .= "\t<output from dnaorg_compare_genomes.pl>\n";
+$usage .= "\n";
+$usage .= " BASIC OPTIONS:\n";
+$usage .= "  -F4     <f>: set threshold for anomaly 4 to <f> (gene count/strand order differs from >= <f> fraction of genomes)            [df: $default_F4]\n";
+$usage .= "  -F5and6 <f>: set threshold for anomaly 5 and 6 to <f> (class has >= 1 gene on a strand which <f> fraction of genomes do not) [df: $default_F5and6]\n";
+$usage .= "  -F7     <f>: set threshold for anomaly 7 to <f> (genome length deviates by more than <f> fraction from mean)                 [df: $default_F7]\n";
+$usage .= "  -F8     <f>: set threshold for anomaly 8 to <f> (>= 1gene length deviates by more than <f> fraction from class mean)         [df: $default_F8]\n";
+$usage .= "\n";
+
 my $i; # a counter
 &GetOptions( "F4"     => \$F4, 
              "F5and6" => \$F5and6, 
-             "F7"     => \$F7);
+             "F7"     => \$F7, 
+             "F8"     => \$F8);
 
 if(scalar(@ARGV) != 1) { die $usage; }
 my ($infile) = (@ARGV);
@@ -47,6 +51,10 @@ if(defined $F7) {
   $opts_used_short .= "-F7 $F7";
   $opts_used_long  .= "# option:  setting F7 anomaly 7 threshold to $F7 [-F7]\n";
 }
+if(defined $F8) { 
+  $opts_used_short .= "-F8 $F8";
+  $opts_used_long  .= "# option:  setting F8 anomaly 8 threshold to $F8 [-F8]\n";
+}
 
 # check for incompatible option values/combinations:
 if(defined $F4 && ($F4 < 0. || $F4 > 1.0)) { 
@@ -58,23 +66,28 @@ if(defined $F5and6 && ($F5and6 < 0. || $F5and6 > 1.0)) {
 if(defined $F7 && ($F7 < 0. || $F7 > 1.0)) { 
   die "ERROR with -F7 <f>, <f> must be a number between 0 and 1."; 
 }
+if(defined $F8 && ($F8 < 0. || $F8 > 1.0)) { 
+  die "ERROR with -F7 <f>, <f> must be a number between 0 and 1."; 
+}
 
 # set defaults for variables not set by the user via options
 if(! defined $F4)     { $F4     = $default_F4;     }
 if(! defined $F5and6) { $F5and6 = $default_F5and6; }
 if(! defined $F7)     { $F7     = $default_F7;     }
+if(! defined $F8)     { $F8     = $default_F8;     }
 
 # define anomaly descriptions:
 my %desc_H = ();
 $desc_H{"1"} = "0 CDS annotations.";
 $desc_H{"2"} = "at least one gene with coding sequence on both strands";
 $desc_H{"3"} = "at least one gene on an unknown strand";
-$desc_H{"4"} = sprintf("a gene order/strand string that differs from >= %.3f fraction of genomes", $F4); 
-$desc_H{"5"} = sprintf("a gene on the positive strand, and >= %.3f fraction of all genomes do not", $F5and6);
-$desc_H{"6"} = sprintf("a gene on the negative strand, and >= %.3f fraction of all genomes do not", $F5and6);
+$desc_H{"4"} = sprintf("a CDS order/strand string that differs from >= %.3f fraction of genomes", $F4); 
+$desc_H{"5"} = sprintf("a CDS on the positive strand, and >= %.3f fraction of all genomes do not", $F5and6);
+$desc_H{"6"} = sprintf("a CDS on the negative strand, and >= %.3f fraction of all genomes do not", $F5and6);
 $desc_H{"7"} = sprintf("total length that deviates by more than %.3f fraction from the mean", $F7);
+$desc_H{"8"} = sprintf("CDS length that deviates by more than %.3f fraction from the mean for that class", $F7);
 
-my $na_types = 7;
+my $na_types = 8;
 my @na_A  = (); #  na_A[$i]: number of genomes with $i anomalies
 my @act_A = (); # act_A[$i]: number of genomes that have anomaly $i
 for($i = 0; $i <= $na_types; $i++) { 
@@ -183,12 +196,12 @@ for(my $p = 1; $p <= 2; $p++) {
         # this is what we expect:
         #accn       #cds   #pos   #neg  #both  #unkn  strand-string  cls  tot-len       g1     g2     g3     g4     g5     g6     g7     g8
         chomp $line;
-        my @elA  = split(/\s+/, $line);
+        my @el_A  = split(/\s+/, $line);
         my @expA = ("#accn", "#cds", "#pos", "#neg", "#both", "#unkn", "strand-string", "cls", "tot-len", "g1");
         my $nexp = 10;
-        if(scalar(@elA) < $nexp) { die "ERROR fewer than expected columns in genome section"; }
+        if(scalar(@el_A) < $nexp) { die "ERROR fewer than expected columns in genome section"; }
         for($i = 1; $i <= $nexp; $i++) { 
-          if($elA[($i-1)] ne $expA[($i-1)]) { die "ERROR genome section header line, token $i is unexpected: %s ne %s", $elA[($i-1)], $expA[($i-1)]; } 
+          if($el_A[($i-1)] ne $expA[($i-1)]) { die "ERROR genome section header line, token $i is unexpected: %s ne %s", $el_A[($i-1)], $expA[($i-1)]; } 
         }
       }    
       
@@ -197,17 +210,21 @@ for(my $p = 1; $p <= 2; $p++) {
         # we already checked that the column headers should be 
         #accn       #cds   #pos   #neg  #both  #unkn  strand-string  cls  tot-len       g1     g2     g3     g4     g5     g6     g7     g8
         #NC_003977      7      7      0      0      0  +++++++          1     3215     2532   1203    846    681    465    639    552
-        my @elA  = split(/\s+/, $line);
-        my $nel  = scalar(@elA);
+        my @el_A  = split(/\s+/, $line);
+        my $nel  = scalar(@el_A);
         my ($accn, $ncds, $npos, $nneg, $nboth, $nunkn, $strand_str, $cls, $totlen) = 
-            ($elA[0], $elA[1], $elA[2], $elA[3], $elA[4], $elA[5], $elA[6], $elA[7], $elA[8]);
-        my @cdslen_A   = ();
+            ($el_A[0], $el_A[1], $el_A[2], $el_A[3], $el_A[4], $el_A[5], $el_A[6], $el_A[7], $el_A[8]);
+        my @cdslen_A   = @el_A;
         my $ncds2      = $nel - $npregene;
         if($ncds == 0) { # genomes with 0 genes have no 'strand-string' token, fix that:
           $strand_str = "";
-          $cls        = $elA[6];
-          $totlen     = $elA[7];
+          $cls        = $el_A[6];
+          $totlen     = $el_A[7];
           $ncds2++;
+          @cdslen_A = (); # no CDS lengths are in @el_A
+        }
+        else { # remove non-CDS length values from @cdslen_A
+          splice(@cdslen_A, 0, 9); 
         }
 
         # if we're in the first pass, gather statistics
@@ -227,7 +244,7 @@ for(my $p = 1; $p <= 2; $p++) {
             for($i = 0; $i < $ncds; $i++) { $cdsavglen_HA{$cls}[$i] = 0; }
           }
           for($i = 0; $i < $ncds; $i++) { 
-            $cdsavglen_HA{$cls}[$i] += $elA[($npregene+$i)];
+            $cdsavglen_HA{$cls}[$i] += $el_A[($npregene+$i)];
           }
           $genome_avglen += $totlen;
         }
@@ -235,6 +252,7 @@ for(my $p = 1; $p <= 2; $p++) {
         # if we're in the second pass, look for anomalies
         else { 
           my %have_a_H = ();
+          my $idx_str;
           $have_a_H{"1"} = check_a1($ncds);
           $have_a_H{"2"} = check_a2($nboth);
           $have_a_H{"3"} = check_a3($nunkn);
@@ -246,7 +264,8 @@ for(my $p = 1; $p <= 2; $p++) {
             $have_a_H{"6"} = check_a5ora6($F5and6, $frc_hasneg, $cls_hasneg_H{$cls});
           }
           $have_a_H{"7"} = check_a7($F7, $totlen, $genome_avglen);
-          
+          ($have_a_H{"8"}, $idx_str) = check_a8($F8, \@cdslen_A, \@{$cdsavglen_HA{$cls}});
+
           my $na = 0;
           for($i = 1; $i <= $na_types; $i++) { 
             if($have_a_H{"$i"}) { 
@@ -260,6 +279,9 @@ for(my $p = 1; $p <= 2; $p++) {
                        (($totlen < $genome_avglen) ? 
                         sprintf("< %.1f nt (%.3f * %.1f)", ((1. - $F7) * $genome_avglen), (1. - $F7), $genome_avglen) : 
                         sprintf("< %.1f nt (%.3f * %.1f)", ((1. + $F7) * $genome_avglen), (1. + $F7), $genome_avglen)));
+              }
+              if($i == 8) { 
+                printf(" (%s idx_str)", $idx_str); 
               }
               printf("\n");
               $act_A[$i]++; 
@@ -389,10 +411,10 @@ sub check_a5ora6 {
 #                                  F7 fraction. 
 # Args:       $F7:       F7 fraction
 #             $cur_len:  length of current genome
-#             $mean_len: mean length of all genomes
+#             $avg_len: mean length of all genomes
 #
-# Returns:    '1' if ($cur_len < ((1. - $F7) * $mean_len)) or
-#                    ($cur_len < ((1. + $F7) * $mean_len))
+# Returns:    '1' if ($cur_len < ((1. - $F7) * $avg_len)) or
+#                    ($cur_len < ((1. + $F7) * $avg_len))
 #             else '0'
 
 sub check_a7 {
@@ -400,9 +422,48 @@ sub check_a7 {
   my $nargs_exp = 3;
   if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
 
-  my ($F7, $cur_len, $mean_len) = (@_);
+  my ($F7, $cur_len, $avg_len) = (@_);
 
-  if   ($cur_len < ((1. - $F7) * $mean_len)) { return 1; }
-  elsif($cur_len > ((1. + $F7) * $mean_len)) { return 1; }
+  if   ($cur_len < ((1. - $F7) * $avg_len)) { return 1; }
+  elsif($cur_len > ((1. + $F7) * $avg_len)) { return 1; }
   else                                       { return 0; }
+}
+
+# Subroutine: check_a8()       
+# Synopsis:   Check for anomaly 8: any gene length deviates from mean by more than
+#                                  F8 fraction. 
+# Args:       $F8:         F8 fraction
+#             $cur_len_AR: ref to array of CDS lengths for current genome
+#             $avg_len_AR: average length of all genes in all genomes of this class
+#
+# Returns:    Two values: 
+#             First value: 
+#               '1' if ($cur_len_AR->[$i] < ((1. - $F8) * $avg_len_AR->[$i])) or
+#               '1' if ($cur_len_AR->[$i] > ((1. + $F8) * $avg_len_AR->[$i]))
+#                else '0'
+#             Second value:
+#             "" if first returned value is '0'
+#             string of ($i+1) values for which condition for first value holds
+#             if more than one, each is separated by a ','.
+
+sub check_a8 {
+  my $sub_name = "check_a8()";
+  my $nargs_exp = 3;
+  if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
+
+  my ($F8, $cur_len_AR, $avg_len_AR) = (@_);
+
+  my $n = scalar(@{$cur_len_AR}); 
+  if($n != (scalar(@{$avg_len_AR}))) { die "ERROR in check_a8, number of genes in the two arrays differs"; }
+
+  my $ret_val1 = 0;
+  my $ret_val2 = "";
+  for(my $i = 0; $i < $n; $i++) { 
+    if($cur_len_AR->[$i] < ((1. - $F8) * $avg_len_AR->[$i])) { $ret_val1 = 1; $ret_val2 .= $i . ","; }
+  }
+
+  # remove final ',' if it exists
+  $ret_val2 =~ s/\,$//;
+  
+  return ($ret_val1, $ret_val2);
 }
