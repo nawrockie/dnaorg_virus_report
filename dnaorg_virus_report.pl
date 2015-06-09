@@ -334,10 +334,11 @@ for(my $p = 1; $p <= 2; $p++) {
               $na++;
               push(@out_A, $outline);
             }
-            if($na > 0) { # add a blank line in between each genome
-              push(@out_A, "\n");
-            }              
           }
+          if($na > 0) { # add a blank line in between each genome
+            push(@out_A, "\n");
+          }              
+
           $na_A[$na]++;
           if($na > 0) { 
             $tot_na++; 
