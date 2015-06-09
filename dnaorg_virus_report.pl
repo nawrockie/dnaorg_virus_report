@@ -372,7 +372,9 @@ for($i = 1; $i <= $na_types; $i++) {
     printf("%-10d  %6d  %s\n", $i, $act_A[$i], "genomes have " . $desc_H{"$i"});
   }
 }
-printf("%-10s  %6d  anomalies exist in %d genomes\n", "total", $tot_act, $tot_na); 
+printf("%-10s  %6d  anomalies exist in %d genomes of %d (%6.4f)\n", "total", $tot_act, $tot_na, $tot_ngenomes, $tot_na / $tot_ngenomes); 
+printf("#\n");
+printf("%-10s  %6d  %s\n", "none", $tot_ngenomes - $tot_na, sprintf("genomes have zero anomalies (%6.4f)", ($tot_ngenomes - $tot_na) / $tot_ngenomes));
 printf("#\n");
 
 
