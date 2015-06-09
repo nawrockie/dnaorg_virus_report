@@ -1,4 +1,5 @@
-#!/usr/bin/env perl EPN, Thu Jun 4 14:45:12 2015
+#!/usr/bin/env perl
+# EPN, Thu Jun 4 14:45:12 2015
 #
 use strict;
 use warnings;
@@ -86,8 +87,9 @@ $desc_H{"5"} = sprintf("a CDS on the positive strand, and >= %.3f fraction of al
 $desc_H{"6"} = sprintf("a CDS on the negative strand, and >= %.3f fraction of all genomes do not", $F5and6);
 $desc_H{"7"} = sprintf("total length that deviates by more than %.3f fraction from the mean", $F7);
 $desc_H{"8"} = sprintf("CDS length that deviates by more than %.3f fraction from the mean for that class", $F7);
+$desc_H{"9"} = sprintf("shifting gene order minimizes CDS length deviation from mean");
 
-my $na_types = 8;
+my $na_types = 9;
 my @na_A  = (); #  na_A[$i]: number of genomes with $i anomalies
 my @act_A = (); # act_A[$i]: number of genomes that have anomaly $i
 for($i = 0; $i <= $na_types; $i++) { 
@@ -253,6 +255,7 @@ for(my $p = 1; $p <= 2; $p++) {
         else { 
           my %have_a_H = ();
           my $idx_str;
+          my $offset;
           $have_a_H{"1"} = check_a1($ncds);
           $have_a_H{"2"} = check_a2($nboth);
           $have_a_H{"3"} = check_a3($nunkn);
@@ -264,7 +267,12 @@ for(my $p = 1; $p <= 2; $p++) {
             $have_a_H{"6"} = check_a5ora6($F5and6, $frc_hasneg, $cls_hasneg_H{$cls});
           }
           $have_a_H{"7"} = check_a7($F7, $totlen, $genome_avglen);
-          ($have_a_H{"8"}, $idx_str) = check_a8($F8, \@cdslen_A, \@{$cdsavglen_HA{$cls}});
+          $have_a_H{"8"} = 0;
+          $have_a_H{"9"} = 0;
+          if($ncds > 0) { 
+            ($have_a_H{"8"}, $idx_str) = check_a8($F8, \@cdslen_A, \@{$cdsavglen_HA{$cls}});
+            ($have_a_H{"9"}, $offset)  = check_a9(\@cdslen_A, \@{$cdsavglen_HA{$cls}});
+          }
 
           my $na = 0;
           for($i = 1; $i <= $na_types; $i++) { 
@@ -281,7 +289,10 @@ for(my $p = 1; $p <= 2; $p++) {
                         sprintf("< %.1f nt (%.3f * %.1f)", ((1. + $F7) * $genome_avglen), (1. + $F7), $genome_avglen)));
               }
               if($i == 8) { 
-                printf(" (%s idx_str)", $idx_str); 
+                printf(" (class $cls:$strand_str, anomalous CDS lengths: $idx_str)");
+              }
+              if($i == 9) { 
+                printf(" (class $cls:$strand_str, offset: $offset)");
               }
               printf("\n");
               $act_A[$i]++; 
@@ -459,11 +470,64 @@ sub check_a8 {
   my $ret_val1 = 0;
   my $ret_val2 = "";
   for(my $i = 0; $i < $n; $i++) { 
-    if($cur_len_AR->[$i] < ((1. - $F8) * $avg_len_AR->[$i])) { $ret_val1 = 1; $ret_val2 .= $i . ","; }
+    if($cur_len_AR->[$i] < ((1. - $F8) * $avg_len_AR->[$i])) { $ret_val1 = 1; $ret_val2 .= ($i+1) . ","; }
   }
 
   # remove final ',' if it exists
   $ret_val2 =~ s/\,$//;
   
   return ($ret_val1, $ret_val2);
+}
+
+# Subroutine: check_a9()       
+# Synopsis:   Check for anomaly 9: shifting gene order minimizes average CDS length deviation
+# Args:       $cur_len_AR: ref to array of CDS lengths for current genome
+#             $avg_len_AR: average length of all genes in all genomes of this class
+#
+# Returns:    Two values: 
+#             First value: 
+#               '1' if a shift makes gene lengths closer to average
+#               '0' if not
+#             Second value:
+#             0 if first returned value is '0'
+#             $i: 1 <= $i <= scalar(@cur_len_AR); number of genes to shift by to get closest match
+
+sub check_a9 {
+  my $sub_name = "check_a9()";
+  my $nargs_exp = 2;
+  if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
+
+  my ($cur_len_AR, $avg_len_AR) = (@_);
+
+  my $n = scalar(@{$cur_len_AR}); 
+  if($n != (scalar(@{$avg_len_AR}))) { die "ERROR in check_a9, number of genes in the two arrays differs"; }
+
+  my @copy_A = @{$cur_len_AR};
+
+  my ($i, $j); # counters
+
+  # set min diff as 10 times sum of all averages
+  my $min_idx = -1;
+  my $min_diff = 0; 
+  for(my $i = 0; $i < $n; $i++) {
+    $min_diff += $avg_len_AR->[$i];
+  }
+  $min_diff *= 10;
+
+  for(my $i = 0; $i < $n; $i++) { 
+    my $diff = 0.;
+    for(my $j = 0; $j < $n; $j++) {
+      $diff += abs($copy_A[$j] - $avg_len_AR->[$j]); 
+    }
+    if($diff < $min_diff) { $min_diff = $diff; $min_idx = $i; }
+
+    # shift array by 1 to prepare for next comparison
+    my $tmp = pop(@copy_A); # take off last element
+    unshift(@copy_A, $tmp); # put it at the beginning
+  }
+  if($min_idx == -1) { die "ERROR in check_a9() unable to find a minimum index"; }
+
+  my $ret_val = ($min_idx == 0) ? 0 : 1;
+
+  return ($ret_val, $min_idx);
 }
