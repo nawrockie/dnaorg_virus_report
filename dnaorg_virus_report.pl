@@ -388,40 +388,12 @@ for(my $p = 1; $p <= 2; $p++) {
   close(IN);
 }
 
-# print summary table that lists counts of each anomaly
-printf("#\n");
-printf("# Description and number of occurences of each anomaly:\n");
-printf("#\n");
-printf("#anomaly-#   count  description\n");
-printf("#---------  ------  -----------\n");
+# go back and identify singletons and modify output lines for singletons
+my @act_singleton_A = ();
+my $tot_nsingleton = 0;
 for($i = 1; $i <= $na_types; $i++) { 
-  # one exception here
-  if(($i == 5 && (! $a5_is_possible)) || 
-     ($i == 6 && (! $a6_is_possible))) { 
-    printf("%-10d  %6s  %s\n", $i, "N/A", "genomes have " . $desc_H{"$i"});
-  }
-  else { 
-    printf("%-10d  %6d  %s\n", $i, $act_A[$i], "genomes have " . $desc_H{"$i"});
-  }
+  $act_singleton_A[$i] = 0;
 }
-printf("%-10s  %6d  anomalies exist in %d genomes of %d (%6.4f)\n", "total", $tot_act, $tot_na, $tot_ngenomes, $tot_na / $tot_ngenomes); 
-printf("#\n");
-printf("%-10s  %6d  %s\n", "none", $tot_ngenomes - $tot_na, sprintf("genomes have zero anomalies (%6.4f)", ($tot_ngenomes - $tot_na) / $tot_ngenomes));
-printf("#\n");
-
-
-# print summary table that lists counts of genomes that have N anomalies
-#printf("##-of-anomalies   count  fraction\n");
-#printf("#--------------   -----  --------\n");
-#for($i = 0; $i <= $na_types; $i++) { 
-#  printf("%-15d  %6d    %6.4f\n", $i, $na_A[$i], $na_A[$i] / $tot_ngenomes);
-#}
-#printf("%-15s  %6d    %6.4f\n", "total", $tot_ngenomes, 1.0);
-
-# print individual anomalies:
-printf("#\n");
-printf("# Individual anomalies:\n");
-printf("#\n");
 for(my $l = 0; $l < scalar(@out_A); $l++) { 
   my $line       = $out_A[$l];
   my $extra_info = $out_extra_info_A[$l];
@@ -437,10 +409,70 @@ for(my $l = 0; $l < scalar(@out_A); $l++) {
     $is_singleton = 1;
   }
   if($is_singleton) { 
+    @act_singleton_A[$anomaly]++;
+    $tot_nsingleton++;
     $line =~ s/             has /  SINGLETON  has /;
   }
+  $out_A[$l] = $line;
+}
+
+
+# print summary table that lists counts of each anomaly
+printf("#\n");
+printf("# Description and number of occurences of each anomaly:\n");
+printf("#\n");
+printf("#               count\n");
+printf("#           -------------\n");
+printf("#anomaly-#   total (sngl)  description\n");
+printf("#---------  -------------  -----------\n");
+for($i = 1; $i <= $na_types; $i++) { 
+  # one exception here
+  if(($i == 5 && (! $a5_is_possible)) || 
+     ($i == 6 && (! $a6_is_possible))) { 
+    printf("%-10d  %6s %6s  %s\n", $i, "N/A", "", "genomes have " . $desc_H{"$i"});
+  }
+  else { 
+    printf("%-10d  %6d %6s  %s\n", $i, $act_A[$i], sprintf("(%d)", $act_singleton_A[$i]), "genomes have " . $desc_H{"$i"});
+  }
+}
+printf("%-10s  %6d %6s  anomalies exist in %d genomes of %d (%6.4f)\n", "total", $tot_act, "", $tot_na, $tot_ngenomes, $tot_na / $tot_ngenomes); 
+printf("#\n");
+printf("%-10s  %6d %6s  %s\n", "none", $tot_ngenomes - $tot_na, "", sprintf("genomes have zero anomalies (%6.4f)", ($tot_ngenomes - $tot_na) / $tot_ngenomes));
+printf("#\n");
+
+
+# print summary table that lists counts of genomes that have N anomalies
+#printf("##-of-anomalies   count  fraction\n");
+#printf("#--------------   -----  --------\n");
+#for($i = 0; $i <= $na_types; $i++) { 
+#  printf("%-15d  %6d    %6.4f\n", $i, $na_A[$i], $na_A[$i] / $tot_ngenomes);
+#}
+#printf("%-15s  %6d    %6.4f\n", "total", $tot_ngenomes, 1.0);
+
+# print individual anomalies
+# (we already added SINGLETON annotation above)
+printf("#\n");
+printf("# Individual anomalies:\n");
+printf("#\n");
+foreach my $line (@out_A) { 
   print $line;
 }
+
+# print tail, explanation of SINGLETONs:
+
+print("#################################################\n");
+print("# Explanation of class definition:\n");
+printf("# A strand-string is a string specifying the strand and order of all CDS annotation for a genome.\n");
+printf("# For example, a genome with 3 CDS, from 1..99, 300..398, and 600..698 all on the positive strand would have a strand string of \"+++\"\n");
+printf("# The same genome but with CDS #2 on the negative strand would have a strand string of \"+-+\"\n");
+printf("#\n#\n");
+print("# Explanation of SINGLETON annotation:\n");
+print("# A4 SINGLETONs are the only genomes in their class with anomaly 4\n");
+print("# A5 SINGLETONs are the only genomes in their class with anomaly 5\n");
+print("# A6 SINGLETONs are the only genomes in their class with anomaly 6\n");
+print("# A7 SINGLETONs are the only genomes in their class with anomaly 7\n");
+print("# A8 SINGLETONs are the only genomes in their class with anomaly 8 and their particular set of CDS indices that deviate in length from the mean\n");
+print("#################################################\n");
 
 #############
 # SUBROUTINES
