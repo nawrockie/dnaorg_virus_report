@@ -162,12 +162,16 @@ my $N4 = undef; # threshold for anomaly 4: any genome in a class with < this num
 my $frc_haspos = undef; # fraction of all genomes with >= 1 gene, that have at least one gene on positive strand
 my $frc_hasneg = undef; # fraction of all genomes with >= 1 gene, that have at least one gene on negative strand
 
-my @out_A = (); # the output lines that list the anomalies
+my @out_A               = (); # the output lines that list the anomalies
+my @out_extra_info_A    = (); # the extra info substrings of the out_A lines, used along with extra_info_ct_H() for determining singleton's
+my @out_anomaly_A       = (); # the anomaly index of the out_A lines
+my @out_class_A         = (); # the class index of the out_A lines
+my %extra_info_ct_H     = (); # key: an extra info string, value: number of times we've seen that string.
 
 my $a5_is_possible = 0; # set to '1' if anomaly a5 can be observed
 my $a6_is_possible = 0; # set to '1' if anomaly a6 can be observed
 
-# TODO: reorganize this, if nothing or very little is done in both passes, remove for(p = 1 to 2) loop, do everything in pass 1, then do everything in pass 2
+
 
 # Do 2 passes over the file. On the first pass collect stats (CDS lengths, etc.)
 # And on the second pass detect anomalies based on those stats.
@@ -201,8 +205,8 @@ for(my $p = 1; $p <= 2; $p++) {
     # get mean and std err for genome length (relevant for a7)
     $genome_len_mean   = mean(\@genome_len_A);
     $genome_len_stderr = standard_error(\@genome_len_A);
-    printf("genome_len_mean:   $genome_len_mean\n");
-    printf("genome_len_stderr: $genome_len_stderr\n");
+    # printf("genome_len_mean:   $genome_len_mean\n");
+    # printf("genome_len_stderr: $genome_len_stderr\n");
 
     # determine if anomalies a5 and a6 are possible:
     # a5 is only possible if >= F5and6 fraction genomes lack any gene on positive strand
@@ -328,29 +332,43 @@ for(my $p = 1; $p <= 2; $p++) {
           my $na = 0;
           for($i = 1; $i <= $na_types; $i++) { 
             if($have_a_H{"$i"}) { 
-              my $outline = sprintf("%-10s  anomaly-#%d  %s", $accn, $i, "has " . $desc_H{$i}); 
+              my $outline = sprintf("%-10s  anomaly-#%d  %9s  %s", $accn, $i, "", "has " . $desc_H{$i}); 
               # add anomaly specific info:
-              if($i == 4) { 
-                $outline .= sprintf(" (%d gene(s), order: $strand_str)", $cls_ncds_H{$cls});
+              my $extra_info = "";
+              if($i == 4 || $i == 5 || $i == 6) { 
+                $extra_info = sprintf(" (class $cls:%d gene(s), order: $strand_str)", $cls_ncds_H{$cls});
               }
               if($i == 7) { 
-                $outline .= sprintf(" (%d nucleotides %s)", $totlen, 
+                $extra_info = sprintf(" (%d nucleotides %s)", $totlen, 
                                     (($totlen < $genome_len_mean) ? 
-                                     sprintf("< %.1f nt (%.3f * %.1f)", ((1. - $F7) * $genome_len_mean), (1. - $F7), $genome_len_mean) : 
-                                     sprintf("< %.1f nt (%.3f * %.1f)", ((1. + $F7) * $genome_len_mean), (1. + $F7), $genome_len_mean)));
+                                     sprintf("< %.1f nt (%.1f - (%d * %.3f))", ($genome_len_mean - ($F7 * $genome_len_stderr)), $genome_len_mean, $F7, $genome_len_stderr) :
+                                     sprintf("> %.1f nt (%.1f + (%d * %.3f))", ($genome_len_mean + ($F7 * $genome_len_stderr)), $genome_len_mean, $F7, $genome_len_stderr)));
               }
               if($i == 8) { 
-                $outline .= " (class $cls:$strand_str, $ndev anomalous CDS lengths: $dev_str)";
+                $extra_info = " (class $cls:$strand_str, $ndev anomalous CDS lengths: $dev_str)";
               }
-              $outline .= "\n";
+              if(! exists $extra_info_ct_H{$extra_info}) { 
+                $extra_info_ct_H{$extra_info} = 1; 
+              }
+              else { 
+                $extra_info_ct_H{$extra_info}++;
+              }
+              $outline .= $extra_info . "\n";
               $act_A[$i]++; 
               $tot_act++;
               $na++;
               push(@out_A, $outline);
+              push(@out_extra_info_A, $extra_info); # this is necessary only so we can determine which have unique extra_info substrings in their $outline,
+                                                    # these are 'SINGLETON's.
+              push(@out_class_A, $cls);
+              push(@out_anomaly_A, $i);
             }
           }
           if($na > 0) { # add a blank line in between each genome
             push(@out_A, "\n");
+            push(@out_extra_info_A, "");
+            push(@out_anomaly_A, -1);
+            push(@out_class_A, -1);
           }              
 
           $na_A[$na]++;
@@ -404,7 +422,23 @@ printf("#\n");
 printf("#\n");
 printf("# Individual anomalies:\n");
 printf("#\n");
-foreach my $line (@out_A) { 
+for(my $l = 0; $l < scalar(@out_A); $l++) { 
+  my $line       = $out_A[$l];
+  my $extra_info = $out_extra_info_A[$l];
+  my $anomaly    = $out_anomaly_A[$l];
+  my $class      = $out_class_A[$l];
+  my $is_singleton = 0; # changed to '1' below if we determine this is a singleton
+  if($anomaly == 7) { # special case, can't use extra_info_ct to determine if it's a singleton
+    if($cls_ngenome_H{$class} == 1) { 
+      $is_singleton = 1;
+    }
+  }
+  elsif($extra_info =~ m/\w/ && $extra_info_ct_H{$extra_info} == 1) { 
+    $is_singleton = 1;
+  }
+  if($is_singleton) { 
+    $line =~ s/             has /  SINGLETON  has /;
+  }
   print $line;
 }
 
@@ -614,6 +648,7 @@ sub check_a8 {
   my $deviates_str = "";
 
   for(my $i = 0; $i < $n; $i++) { 
+    #printf("mean_len_AR->[$i]: $mean_len_AR->[$i]; stderr: $stderr_AR->[$i]; cur: $cur_len_AR->[$i]\n");
     if(($cur_len_AR->[$i] < ($mean_len_AR->[$i] - ($F8a * $stderr_AR->[$i]))) ||  # too low
        ($cur_len_AR->[$i] > ($mean_len_AR->[$i] + ($F8a * $stderr_AR->[$i])))) {  # too high
       $ndeviates++;
