@@ -121,7 +121,7 @@ for($i = 0; $i < $nreports; $i++) {
 #total            2  anomalies exist in 2 genomes of 427 (0.0047)
       ($ngenomes_a, $ngenomes) = ($1, $2);
     }
-    elsif($line =~ /^# Explanation of class definition/) { 
+    elsif($line =~ /^# Explanation/) { 
       if(! $stored_explanations) { 
         push(@explanation_A, $line . "\n");
         while($line = <IN>) { 
@@ -158,13 +158,9 @@ for (my $i = 0; $i < $w_name-1; $i++) { $name_dashes .= "-"; }
 
 my $w_count = ($max_aidx - $min_aidx + 1) * 13 + 1;
 my $count_dashes = "";
-my $count_string = "";
 for (my $i = 0; $i < $w_count; $i++) { $count_dashes .= "-"; }
-for (my $i = 0; $i < ($w_count/2) - 3; $i++) { $count_string .= " "; }
 
-printf("#%-*s  %8s  %8s  %9s  %9s %s\n", $w_name-1, "", "", "", "", "", $count_string . "counts");
 printf("#%-*s  %8s  %8s  %9s  %9s %s\n", $w_name-1, "", "", "", "", "", $count_dashes);
-
 
 printf("#%-*s  %8s  %8s  %9s  %9s |", 
        $w_name-1, "", "", "", "#genomes", "fraction"); 
@@ -176,7 +172,7 @@ printf("\n");
 printf("#%-*s  %8s  %8s  %9s  %9s |", 
        $w_name-1, "name", "#classes", "#genomes", "w/anomaly", "w/anomaly");
 for($aidx = $min_aidx; $aidx <= $max_aidx; $aidx++) { 
-  printf(" %10s |", "   ct sngl");
+  printf(" %10s |", "count sngl");
 }
 printf("\n");
 
@@ -218,6 +214,7 @@ printf("#%-*s  %8s  %8s  %9s  %9s %s\n", $w_name-1, "", "", "", "", "", $count_d
 
 printf("#\n");
 printf("#\n");
+printf("# Explanation of anomalies:\n");
 for($aidx = $min_aidx; $aidx <= $max_aidx; $aidx++) { 
   printf("# anomaly #%d  %s\n", $aidx, $desc_A[$aidx]);
 }

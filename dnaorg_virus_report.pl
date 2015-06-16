@@ -126,6 +126,7 @@ if($opts_used_long ne "") {
 }
 
 printf("#\n"); 
+printf("###############################################################\n"); 
 printf("# Summary of class definition and membership from compare file:\n"); 
 printf("#\n"); 
 
@@ -419,7 +420,11 @@ for(my $l = 0; $l < scalar(@out_A); $l++) {
 
 # print summary table that lists counts of each anomaly
 printf("#\n");
+printf("###############################################################\n"); 
 printf("# Description and number of occurences of each anomaly:\n");
+printf("#\n");
+printf("#   SINGLETONs are numbered in the '(sngl)' column and\n");
+printf("#   explained at end of this output.\n");
 printf("#\n");
 printf("#               count\n");
 printf("#           -------------\n");
@@ -452,6 +457,7 @@ printf("#\n");
 # print individual anomalies
 # (we already added SINGLETON annotation above)
 printf("#\n");
+printf("###############################################################\n"); 
 printf("# Individual anomalies:\n");
 printf("#\n");
 foreach my $line (@out_A) { 
@@ -460,19 +466,21 @@ foreach my $line (@out_A) {
 
 # print tail, explanation of SINGLETONs:
 
-print("#################################################\n");
-print("# Explanation of class definition:\n");
-printf("# A strand-string is a string specifying the strand and order of all CDS annotation for a genome.\n");
-printf("# For example, a genome with 3 CDS, from 1..99, 300..398, and 600..698 all on the positive strand would have a strand string of \"+++\"\n");
-printf("# The same genome but with CDS #2 on the negative strand would have a strand string of \"+-+\"\n");
-printf("#\n#\n");
-print("# Explanation of SINGLETON annotation:\n");
+printf("###############################################################\n"); 
+print("# Explanation of SINGLETON (sngl) annotation:\n");
 print("# A4 SINGLETONs are the only genomes in their class with anomaly 4\n");
 print("# A5 SINGLETONs are the only genomes in their class with anomaly 5\n");
 print("# A6 SINGLETONs are the only genomes in their class with anomaly 6\n");
 print("# A7 SINGLETONs are the only genomes in their class with anomaly 7\n");
 print("# A8 SINGLETONs are the only genomes in their class with anomaly 8 and their particular set of CDS indices that deviate in length from the mean\n");
-print("#################################################\n");
+print("#\n");
+print("# Explanation of class definition:\n");
+print("# All genomes with the same \"strand-string\" are placed in the same class.\n");
+print("# A genome's strand-string is a string specifying the strand and order of all CDS annotation for that genome.\n");
+print("# For example, a genome with 3 CDS, from 1..99, 300..398, and 600..698 all on the positive strand would have a strand string of \"+++\"\n");
+print("# The same genome but with CDS #2 on the negative strand would have a strand string of \"+-+\"\n");
+print("#\n#\n");
+print("###############################################################\n"); 
 
 #############
 # SUBROUTINES
