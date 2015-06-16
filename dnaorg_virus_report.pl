@@ -409,7 +409,7 @@ for(my $l = 0; $l < scalar(@out_A); $l++) {
     $is_singleton = 1;
   }
   if($is_singleton) { 
-    @act_singleton_A[$anomaly]++;
+    $act_singleton_A[$anomaly]++;
     $tot_nsingleton++;
     $line =~ s/             has /  SINGLETON  has /;
   }
