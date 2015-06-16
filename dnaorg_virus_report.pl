@@ -467,6 +467,7 @@ foreach my $line (@out_A) {
 # print tail, explanation of SINGLETONs:
 
 printf("###############################################################\n"); 
+print("#\n");
 print("# Explanation of SINGLETON (sngl) annotation:\n");
 print("# A4 SINGLETONs are the only genomes in their class with anomaly 4\n");
 print("# A5 SINGLETONs are the only genomes in their class with anomaly 5\n");
@@ -477,9 +478,9 @@ print("#\n");
 print("# Explanation of class definition:\n");
 print("# All genomes with the same \"strand-string\" are placed in the same class.\n");
 print("# A genome's strand-string is a string specifying the strand and order of all CDS annotation for that genome.\n");
-print("# For example, a genome with 3 CDS, from 1..99, 300..398, and 600..698 all on the positive strand would have a strand string of \"+++\"\n");
-print("# The same genome but with CDS #2 on the negative strand would have a strand string of \"+-+\"\n");
-print("#\n#\n");
+print("# For example, a genome with 3 CDS, from 1..99, 300..398, and 600..698 all on the positive strand would have a strand string of \"+++\".\n");
+print("# The same genome but with CDS #2 on the negative strand would have a strand string of \"+-+\".\n");
+print("#\n");
 print("###############################################################\n"); 
 
 #############
