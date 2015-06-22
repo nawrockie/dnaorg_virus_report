@@ -20,6 +20,8 @@ my $default_F7     = 2;
 my $default_F8a    = 2;
 my $default_F8b    = 0.5;
 
+my $outfile_zero   = undef;
+
 my $usage  = "\ndnaorg_virus_report.pl\n";
 $usage .= "\t<output from dnaorg_compare_genomes.pl>\n";
 $usage .= "\n";
@@ -29,6 +31,9 @@ $usage .= "  -F5and6 <f>: set threshold for anomaly 5 and 6 to <f> (class has >=
 $usage .= "  -F7     <d>: set threshold for anomaly 7 to <f> (genome length deviates by more than <d> standard errors from mean)                    [df: $default_F7]\n";
 $usage .= "  -F8a    <d>: set threshold a for anomaly 8 to <f> (> F8b fraction of CDS lengths deviate by more than <f> std errors from class mean)  [df: $default_F8a]\n";
 $usage .= "  -F8b    <f>: set threshold b for anomaly 8 to <f> (> <f> fraction of CDS lengths deviate by more than F8a std errors from class mean)  [df: $default_F8b]\n";
+$usage .= " OPTIONS FOR CREATING ADDITIONAL OUTPUT FILES:\n";
+$usage .= "  -ozero  <f>: save a list of all accessions with 0 anomalies to file <f>\n";
+
 $usage .= "\n";
 
 my $i; # a counter
@@ -36,7 +41,8 @@ my $i; # a counter
              "F5and6=s" => \$F5and6, 
              "F7=s"     => \$F7, 
              "F8a=s"    => \$F8a,
-             "F8b=s"    => \$F8b);
+             "F8b=s"    => \$F8b,
+             "ozero=s"  => \$outfile_zero);
 
 if(scalar(@ARGV) != 1) { die $usage; }
 my ($infile) = (@ARGV);
@@ -63,6 +69,10 @@ if(defined $F8a) {
 if(defined $F8a) { 
   $opts_used_short .= "-F8b $F8b";
   $opts_used_long  .= "# option:  setting F8a anomaly 8 threshold to $F8b [-F8b]\n";
+}
+if(defined $outfile_zero) { 
+  $opts_used_short .= "-ozero $outfile_zero";
+  $opts_used_long  .= "# option:  saving list of accessions with 0 anomalies to file $outfile_zero [-ozero]\n";
 }
 
 # check for incompatible option values/combinations:
@@ -130,6 +140,10 @@ printf("###############################################################\n");
 printf("# Summary of class definition and membership from compare file:\n"); 
 printf("#\n"); 
 
+
+if(defined $outfile_zero) { 
+  open(OUTZERO, ">" . $outfile_zero) || die "ERROR unable to open $outfile_zero for writing"; 
+}
 
 ##############################################
 # Process the dnaorg_compare_genomes.pl output
@@ -371,6 +385,11 @@ for(my $p = 1; $p <= 2; $p++) {
             push(@out_anomaly_A, -1);
             push(@out_class_A, -1);
           }              
+          else { # no anomalies for this accession
+            if(defined $outfile_zero) { 
+              print OUTZERO "$accn\n"; 
+            }
+          }
 
           $na_A[$na]++;
           if($na > 0) { 
@@ -417,6 +436,9 @@ for(my $l = 0; $l < scalar(@out_A); $l++) {
   $out_A[$l] = $line;
 }
 
+if(defined $outfile_zero) { 
+  close(OUTZERO); 
+}
 
 # print summary table that lists counts of each anomaly
 printf("#\n");
@@ -442,7 +464,7 @@ for($i = 1; $i <= $na_types; $i++) {
 }
 printf("%-10s  %6d %6s  anomalies exist in %d genomes of %d (%6.4f)\n", "total", $tot_act, "", $tot_na, $tot_ngenomes, $tot_na / $tot_ngenomes); 
 printf("#\n");
-printf("%-10s  %6d %6s  %s\n", "none", $tot_ngenomes - $tot_na, "", sprintf("genomes have zero anomalies (%6.4f)", ($tot_ngenomes - $tot_na) / $tot_ngenomes));
+printf("%-10s  %6d %6s  %s\n", "none", $tot_ngenomes - $tot_na, "", sprintf("genomes have zero anomalies (%6.4f)%s", ($tot_ngenomes - $tot_na) / $tot_ngenomes, (defined $outfile_zero) ? " [saved to file: $outfile_zero]" : ""));
 printf("#\n");
 
 
