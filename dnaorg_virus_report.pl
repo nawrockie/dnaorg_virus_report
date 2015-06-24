@@ -1,14 +1,18 @@
 #!/usr/bin/env perl
 # EPN, Thu Jun 4 14:45:12 2015
 #
+# This script uses BioEasel's SqFile module.
+#
 use strict;
 use warnings;
 use Getopt::Long;
 use Time::HiRes qw(gettimeofday);
+use Bio::Easel::SqFile;
 
 # examine an output file from dnaorg_compare_genomes and find and report 'anomalies'
 
 my $executable     = $0;
+my $do_purge       = 0;
 my $F4             = undef;
 my $F5and6         = undef;
 my $F7             = undef;
@@ -21,28 +25,41 @@ my $default_F8a    = 2;
 my $default_F8b    = 0.5;
 
 my $outfile_zero   = undef;
+my $outfile_anom   = undef;
+my $outfile_plist  = undef;
+
+my %to_purge_H = (); # key: accession; value: 1 to purge this sequence
 
 my $usage  = "\ndnaorg_virus_report.pl\n";
 $usage .= "\t<output from dnaorg_compare_genomes.pl>\n";
 $usage .= "\n";
 $usage .= " BASIC OPTIONS:\n";
+$usage .= "  -purge    : remove all gene seqs from a genome with >= 1 anomaly from their CDS files created by dnaorg_compare_genomes.pl\n";
+$usage .= "\n";
+$usage .= " OPTIONS CONTROLLING THRESHOLDS:\n";
 $usage .= "  -F4     <f>: set threshold for anomaly 4 to <f> (gene count/strand order differs from >= <f> fraction of genomes)                      [df: $default_F4]\n";
 $usage .= "  -F5and6 <f>: set threshold for anomaly 5 and 6 to <f> (class has >= 1 gene on a strand which <f> fraction of genomes do not)           [df: $default_F5and6]\n";
 $usage .= "  -F7     <d>: set threshold for anomaly 7 to <f> (genome length deviates by more than <d> standard errors from mean)                    [df: $default_F7]\n";
 $usage .= "  -F8a    <d>: set threshold a for anomaly 8 to <f> (> F8b fraction of CDS lengths deviate by more than <f> std errors from class mean)  [df: $default_F8a]\n";
 $usage .= "  -F8b    <f>: set threshold b for anomaly 8 to <f> (> <f> fraction of CDS lengths deviate by more than F8a std errors from class mean)  [df: $default_F8b]\n";
+$usage .= "\n";
 $usage .= " OPTIONS FOR CREATING ADDITIONAL OUTPUT FILES:\n";
-$usage .= "  -ozero  <f>: save a list of all accessions with 0 anomalies to file <f>\n";
+$usage .= "  -ozero <s>: save a list of all accessions with 0   anomalies to file <s>\n";
+$usage .= "  -oanom <s>: save a list of all accessions with >=1 anomalies to file <s>\n";
+$usage .= "  -plist <s>: with -purge, create a file named <s> with a list of the newly created fasta files with anomalous seqs purged.\n";
 
 $usage .= "\n";
 
 my $i; # a counter
-&GetOptions( "F4=s"     => \$F4, 
+&GetOptions( "purge"    => \$do_purge,
+             "F4=s"     => \$F4, 
              "F5and6=s" => \$F5and6, 
              "F7=s"     => \$F7, 
              "F8a=s"    => \$F8a,
              "F8b=s"    => \$F8b,
-             "ozero=s"  => \$outfile_zero);
+             "ozero=s"  => \$outfile_zero,
+             "oanom=s"  => \$outfile_anom, 
+             "plist=s"  => \$outfile_plist);
 
 if(scalar(@ARGV) != 1) { die $usage; }
 my ($infile) = (@ARGV);
@@ -50,6 +67,10 @@ my ($infile) = (@ARGV);
 # store options used, so we can output them 
 my $opts_used_short = "";
 my $opts_used_long  = "";
+if($do_purge) { 
+  $opts_used_short .= "-purge ";
+  $opts_used_long  .= "# option:  purging gene seqs from anomalous genomes from CDS files [-purge]\n";
+}
 if(defined $F4) { 
   $opts_used_short .= "-F4 $F4";
   $opts_used_long  .= "# option:  setting F4 anomaly 4 threshold to $F4 [-F4]\n";
@@ -74,6 +95,14 @@ if(defined $outfile_zero) {
   $opts_used_short .= "-ozero $outfile_zero";
   $opts_used_long  .= "# option:  saving list of accessions with 0 anomalies to file $outfile_zero [-ozero]\n";
 }
+if(defined $outfile_anom) { 
+  $opts_used_short .= "-oanom $outfile_anom";
+  $opts_used_long  .= "# option:  saving list of accessions with >=1 anomalies to file $outfile_anom [-oanom]\n";
+}
+if(defined $outfile_plist) { 
+  $opts_used_short .= "-pfile $outfile_plist";
+  $opts_used_long  .= "# option:  saving list of new fasta files created to file $outfile_plist [-plist]\n";
+}
 
 # check for incompatible option values/combinations:
 if(defined $F4 && ($F4 < 0. || $F4 > 1.0)) { 
@@ -91,6 +120,9 @@ if(defined $F8a && ($F8a < 0. || $F8a > 1.0)) {
 if(defined $F8b && ($F8b < 0. || $F8b > 1.0)) { 
   die "ERROR with -F8b <f>, <f> must be a number between 0 and 1."; 
 }
+if(defined $outfile_plist && (! $do_purge)) { 
+  die "ERROR with -plist only makes sense in combination with -purge"; 
+}  
 
 # set defaults for variables not set by the user via options
 if(! defined $F4)     { $F4     = $default_F4;     }
@@ -144,14 +176,20 @@ printf("#\n");
 if(defined $outfile_zero) { 
   open(OUTZERO, ">" . $outfile_zero) || die "ERROR unable to open $outfile_zero for writing"; 
 }
+if(defined $outfile_zero) { 
+  open(OUTANOM, ">" . $outfile_anom) || die "ERROR unable to open $outfile_anom for writing"; 
+}
+if(defined $outfile_plist) { 
+  open(OUTPFILE, ">" . $outfile_plist) || die "ERROR unable to open $outfile_plist for writing"; 
+}
 
 ##############################################
 # Process the dnaorg_compare_genomes.pl output
 ##############################################
 # variables that let us know where we are in the file
-my $in_genome_section    = 0;
-my $in_summary_section   = 0;
-my $past_summary_section = 0;
+my $in_genome_section  = 0;
+my $in_summary_section = 0;
+my $in_fetch_section   = 0;
 
 my %cls_ngenome_H     = (); # key: class name (usually integer), value number of genomes in class
 my %cls_haspos_H      = (); # key: class name (usually integer), value '1' if class has >0 genes on positive strand
@@ -186,7 +224,9 @@ my %extra_info_ct_H     = (); # key: an extra info string, value: number of time
 my $a5_is_possible = 0; # set to '1' if anomaly a5 can be observed
 my $a6_is_possible = 0; # set to '1' if anomaly a6 can be observed
 
-
+# variables related to -purge
+my $n_new_fa_file = 0;   # number of new fasta files created, will remain 0 unless -purge enabled.
+my @purge_output_A = (); # array of output lines related to -purge
 
 # Do 2 passes over the file. On the first pass collect stats (CDS lengths, etc.)
 # And on the second pass detect anomalies based on those stats.
@@ -236,19 +276,23 @@ for(my $p = 1; $p <= 2; $p++) {
       # potentially update variables which tell us where we are
       if((! $in_genome_section) && (! $in_summary_section)) { 
         if($line !~ m/^\#/) { 
-          $in_genome_section = 1;
+          $in_genome_section  = 1;
+          $in_summary_section = 0;
+          $in_fetch_section   = 0;
         }
       }
       elsif($in_genome_section) { 
         if($line =~ /^\# Number-of-classes\:\s+(\d+)/) { 
-          $in_genome_section   = 0;
-          $in_summary_section  = 1;
+          $in_genome_section  = 0;
+          $in_summary_section = 1;
+          $in_fetch_section   = 0;
         }
       }
       elsif($in_summary_section) { 
         if($line =~ m/^# Fetching/) { 
-          $in_summary_section   = 0;
-          $past_summary_section = 1;
+          $in_genome_section  = 0;
+          $in_summary_section = 0;
+          $in_fetch_section   = 1;
         }
       }
       
@@ -384,6 +428,12 @@ for(my $p = 1; $p <= 2; $p++) {
             push(@out_extra_info_A, "");
             push(@out_anomaly_A, -1);
             push(@out_class_A, -1);
+            if($do_purge) { # store this accession, we'll need it to purge anomalous seqs later
+              $to_purge_H{$accn} = 1;
+            }
+            if(defined $outfile_anom) { 
+              print OUTANOM "$accn\n"; 
+            }
           }              
           else { # no anomalies for this accession
             if(defined $outfile_zero) { 
@@ -401,6 +451,57 @@ for(my $p = 1; $p <= 2; $p++) {
         # echo this part 
         if($p == 1) { 
           print $line; 
+        }
+      }
+      elsif($in_fetch_section && $do_purge) { 
+        if($p == 2) { # only do this on the second pass
+          my $fa_file = $line;
+          chomp $fa_file;
+          # Fetching 425 CDS sequences for class  1 gene  1 ... done. [FMDV_r26.NC_004004/FMDV_r26.NC_004004.c1.g1.fa]
+          if($fa_file =~ s/^\# Fetching.+CDS sequences.+done.\s+\[//) { 
+            $fa_file =~ s/\]//;
+            my $new_fa_file = $fa_file; 
+            my $n_notpurged = 0;
+            my $n_purged    = 0;
+            if($new_fa_file !~ m/\.fa$/) { die "ERROR $fa_file does not end in .fa"; }
+            $new_fa_file =~ s/\.fa$/.purged.fa/;
+            open(OUTFA, ">" . $new_fa_file) || die "ERROR unable to open $new_fa_file for writing"; 
+            my $sqfile = Bio::Easel::SqFile->new({ fileLocation => $fa_file });
+            my $nseq = $sqfile->nseq_ssi;
+            # check each sequence to see if it should be purged, if so, purge it
+            for(my $i = 1; $i <= $nseq; $i++) { 
+              my $seq = $sqfile->fetch_consecutive_seqs(1, "", 80, undef); # get the next sequence in the file
+              if($seq =~ /^\>(\S+)\s+/) { 
+                my $name = $1;
+                if(! exists $to_purge_H{$name}) { 
+                  print OUTFA $seq; # if it is not in the purge list, output it to OUTFA
+                  $n_notpurged++;
+                }
+                else { 
+                  $n_purged++; 
+                }
+              }
+              else { 
+                die "ERROR unable to determine name for sequence $i in file $fa_file";
+              }
+            }
+            $sqfile->close_sqfile;
+            if(-e $fa_file . ".ssi") { unlink $fa_file . ".ssi"; } # clean up the index file
+            close(OUTFA);
+            $n_new_fa_file++;
+            if($n_notpurged == 0) { 
+              if($n_purged == 0) { die "ERROR didn't read any sequences in file $fa_file"; }
+              push(@purge_output_A, sprintf("# All %4d sequence(s) in $fa_file were purged [no .purged.fa file created]\n", $n_purged)); 
+              if(-e $new_fa_file) { 
+                if(-s $new_fa_file) { die "ERROR didn't write any sequences to $new_fa_file, but it is not empty"; }
+                unlink $new_fa_file;
+              }
+            }
+            else { 
+              push(@purge_output_A, sprintf("# Created file $new_fa_file [%4d sequences kept; %4d sequences purged]\n", $n_notpurged, $n_purged));
+              if(defined $outfile_plist) { print OUTPFILE "$new_fa_file\n"; }
+            }
+          }
         }
       }
     }
@@ -436,9 +537,6 @@ for(my $l = 0; $l < scalar(@out_A); $l++) {
   $out_A[$l] = $line;
 }
 
-if(defined $outfile_zero) { 
-  close(OUTZERO); 
-}
 
 # print summary table that lists counts of each anomaly
 printf("#\n");
@@ -504,6 +602,38 @@ print("# For example, a genome with 3 CDS, from 1..99, 300..398, and 600..698 al
 print("# The same genome but with CDS #2 on the negative strand would have a strand string of \"+-+\".\n");
 print("#\n");
 print("###############################################################\n"); 
+
+if(scalar(@purge_output_A) > 0) { 
+  printf("#\n");
+  printf("# Newly created fasta files after purging sequences with >= 1 anomaly.\n");
+  foreach my $line (@purge_output_A) { 
+    print $line; 
+  }
+  printf("#\n");
+  print("###############################################################\n"); 
+}
+
+my $n = 0;
+if(defined $outfile_zero) { 
+  close(OUTZERO); 
+  if($n == 0) { print("#\n"); }
+  $n++; 
+  printf("# List of accessions with zero anomalies saved to $outfile_zero.\n");
+}
+if(defined $outfile_anom) { 
+  close(OUTANOM); 
+  if($n == 0) { print("#\n"); }
+  $n++; 
+  printf("# List of accessions with >= 1 anomalies saved to $outfile_zero.\n");
+}
+if(defined $outfile_plist) { 
+  close(OUTPFILE); 
+  if($n == 0) { print("#\n"); }
+  $n++; 
+  printf("# List of newly created fasta files with anomalous sequences purged saved to $outfile_plist\n"); 
+}
+if($n > 0) { print("#\n###############################################################\n"); }
+
 
 #############
 # SUBROUTINES
