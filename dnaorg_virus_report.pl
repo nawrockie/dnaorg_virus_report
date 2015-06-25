@@ -624,7 +624,7 @@ if(defined $outfile_anom) {
   close(OUTANOM); 
   if($n == 0) { print("#\n"); }
   $n++; 
-  printf("# List of accessions with >= 1 anomalies saved to $outfile_zero.\n");
+  printf("# List of accessions with >= 1 anomalies saved to $outfile_anom.\n");
 }
 if(defined $outfile_plist) { 
   close(OUTPFILE); 
