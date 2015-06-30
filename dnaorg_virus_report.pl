@@ -11,8 +11,10 @@ use Bio::Easel::SqFile;
 
 # examine an output file from dnaorg_compare_genomes and find and report 'anomalies'
 
-my $executable     = $0;
-my $do_purge       = 0;
+my $executable         = $0;
+my $do_purge           = 0;
+my $do_purge_anom_only = 0;
+# threshold related variables
 my $F4             = undef;
 my $F5and6         = undef;
 my $F7             = undef;
@@ -28,13 +30,15 @@ my $outfile_zero   = undef;
 my $outfile_anom   = undef;
 my $outfile_plist  = undef;
 
-my %to_purge_H = (); # key: accession; value: 1 to purge this sequence
+my $esl_test_cds_script = "/panfs/pan1/dnaorg/programs/esl-test-cds-translate-vs-fetch.pl";
+
 
 my $usage  = "\ndnaorg_virus_report.pl\n";
 $usage .= "\t<output from dnaorg_compare_genomes.pl>\n";
 $usage .= "\n";
 $usage .= " BASIC OPTIONS:\n";
-$usage .= "  -purge    : remove all gene seqs from a genome with >= 1 anomaly from their CDS files created by dnaorg_compare_genomes.pl\n";
+$usage .= "  -purge    : remove all gene seqs from a genome with >= 1 anomaly or >= 1 CDS test failure from their CDS files created by dnaorg_compare_genomes.pl\n";
+$usage .= "  -panom    : only remove all gene seqs from a genome with >= 1 anomaly, don't do the CDS tests\n";
 $usage .= "\n";
 $usage .= " OPTIONS CONTROLLING THRESHOLDS:\n";
 $usage .= "  -F4     <f>: set threshold for anomaly 4 to <f> (gene count/strand order differs from >= <f> fraction of genomes)                      [df: $default_F4]\n";
@@ -52,6 +56,7 @@ $usage .= "\n";
 
 my $i; # a counter
 &GetOptions( "purge"    => \$do_purge,
+             "panom"    => \$do_purge_anom_only,
              "F4=s"     => \$F4, 
              "F5and6=s" => \$F5and6, 
              "F7=s"     => \$F7, 
@@ -69,7 +74,11 @@ my $opts_used_short = "";
 my $opts_used_long  = "";
 if($do_purge) { 
   $opts_used_short .= "-purge ";
-  $opts_used_long  .= "# option:  purging gene seqs from anomalous genomes from CDS files [-purge]\n";
+  $opts_used_long  .= "# option:  purging gene seqs from anomalous/test failing seqs from CDS files [-purge]\n";
+}
+if($do_purge_anom_only) { 
+  $opts_used_short .= "-panom ";
+  $opts_used_long  .= "# option:  only purge sequences that have anomalies, don't do CDS tests [-panom]\n";
 }
 if(defined $F4) { 
   $opts_used_short .= "-F4 $F4";
@@ -104,6 +113,7 @@ if(defined $outfile_plist) {
   $opts_used_long  .= "# option:  saving list of new fasta files created to file $outfile_plist [-plist]\n";
 }
 
+
 # check for incompatible option values/combinations:
 if(defined $F4 && ($F4 < 0. || $F4 > 1.0)) { 
   die "ERROR with -F4 <f>, <f> must be a number between 0 and 1."; 
@@ -122,6 +132,9 @@ if(defined $F8b && ($F8b < 0. || $F8b > 1.0)) {
 }
 if(defined $outfile_plist && (! $do_purge)) { 
   die "ERROR with -plist only makes sense in combination with -purge"; 
+}  
+if($do_purge_anom_only && (! $do_purge)) { 
+  die "ERROR with -panom only makes sense in combination with -purge"; 
 }  
 
 # set defaults for variables not set by the user via options
@@ -225,8 +238,12 @@ my $a5_is_possible = 0; # set to '1' if anomaly a5 can be observed
 my $a6_is_possible = 0; # set to '1' if anomaly a6 can be observed
 
 # variables related to -purge
-my $n_new_fa_file = 0;   # number of new fasta files created, will remain 0 unless -purge enabled.
-my @purge_output_A = (); # array of output lines related to -purge
+my %to_purge_H = (); # key: accession; value: 1 to purge this sequence
+my @purged1_file_A   = (); # array of file names of round 1 purged fasta files created
+my @purged1_output_A = (); # array of strings to output describing round 1 purged fasta files created or not created (because all seqs were purged) 
+my @purged2_file_A   = (); # array of file names of round 2 purged fasta files created
+my @purged2_output_A = (); # array of strings to output describing round 2 purged fasta files created or not created (because all seqs were purged) 
+
 
 # Do 2 passes over the file. On the first pass collect stats (CDS lengths, etc.)
 # And on the second pass detect anomalies based on those stats.
@@ -453,6 +470,8 @@ for(my $p = 1; $p <= 2; $p++) {
           print $line; 
         }
       }
+      ########################################
+      # Possibly purge sequences from the fasta files
       elsif($in_fetch_section && $do_purge) { 
         if($p == 2) { # only do this on the second pass
           my $fa_file = $line;
@@ -460,46 +479,16 @@ for(my $p = 1; $p <= 2; $p++) {
           # Fetching 425 CDS sequences for class  1 gene  1 ... done. [FMDV_r26.NC_004004/FMDV_r26.NC_004004.c1.g1.fa]
           if($fa_file =~ s/^\# Fetching.+CDS sequences.+done.\s+\[//) { 
             $fa_file =~ s/\]//;
-            my $new_fa_file = $fa_file; 
-            my $n_notpurged = 0;
-            my $n_purged    = 0;
-            if($new_fa_file !~ m/\.fa$/) { die "ERROR $fa_file does not end in .fa"; }
-            $new_fa_file =~ s/\.fa$/.purged.fa/;
-            open(OUTFA, ">" . $new_fa_file) || die "ERROR unable to open $new_fa_file for writing"; 
-            my $sqfile = Bio::Easel::SqFile->new({ fileLocation => $fa_file });
-            my $nseq = $sqfile->nseq_ssi;
-            # check each sequence to see if it should be purged, if so, purge it
-            for(my $i = 1; $i <= $nseq; $i++) { 
-              my $seq = $sqfile->fetch_consecutive_seqs(1, "", 80, undef); # get the next sequence in the file
-              if($seq =~ /^\>(\S+)\s+/) { 
-                my $name = $1;
-                if(! exists $to_purge_H{$name}) { 
-                  print OUTFA $seq; # if it is not in the purge list, output it to OUTFA
-                  $n_notpurged++;
-                }
-                else { 
-                  $n_purged++; 
-                }
+            my $output_fa_file    = $fa_file; 
+            my $output_plist_file = $fa_file; 
+            if($output_fa_file !~ m/\.fa$/) { die "ERROR $fa_file does not end in .fa"; }
+            $output_fa_file    =~ s/\.fa$/.purged1.fa/;
+            $output_plist_file =~ s/\.fa$/.purged1.list/;
+            my ($nkept, $npurged) = purgeSeqs($fa_file, $output_fa_file, $output_plist_file, \%to_purge_H, \@purged1_file_A, \@purged1_output_A);
+            if($nkept > 0) { 
+              if(defined $outfile_plist) { 
+                print OUTPFILE "$output_fa_file\n"; 
               }
-              else { 
-                die "ERROR unable to determine name for sequence $i in file $fa_file";
-              }
-            }
-            $sqfile->close_sqfile;
-            if(-e $fa_file . ".ssi") { unlink $fa_file . ".ssi"; } # clean up the index file
-            close(OUTFA);
-            $n_new_fa_file++;
-            if($n_notpurged == 0) { 
-              if($n_purged == 0) { die "ERROR didn't read any sequences in file $fa_file"; }
-              push(@purge_output_A, sprintf("# All %4d sequence(s) in $fa_file were purged [no .purged.fa file created]\n", $n_purged)); 
-              if(-e $new_fa_file) { 
-                if(-s $new_fa_file) { die "ERROR didn't write any sequences to $new_fa_file, but it is not empty"; }
-                unlink $new_fa_file;
-              }
-            }
-            else { 
-              push(@purge_output_A, sprintf("# Created file $new_fa_file [%4d sequences kept; %4d sequences purged]\n", $n_notpurged, $n_purged));
-              if(defined $outfile_plist) { print OUTPFILE "$new_fa_file\n"; }
             }
           }
         }
@@ -508,6 +497,52 @@ for(my $p = 1; $p <= 2; $p++) {
   }
   close(IN);
 }
+
+#############################
+# If we're purging sequences, perform round 2 of the purging:
+#   Go back over the round 1 purged fasta files and run $esl_test_cds_script on them.
+#   Then parse its output and purge any sequences that failed >= 1 test to create
+#   the round 2 purged fasta files.
+#   
+#   If -panom was used, we skip this round 2 purging.
+#
+if($do_purge && (! $do_purge_anom_only)) { 
+  %to_purge_H = (); # reinitialize this hash, we'll fill it with names of sequences to remove in round 2
+  foreach my $fa_file (@purged1_file_A) { 
+    my $cds_test_output = $fa_file;
+    $cds_test_output =~ s/\.fa$/\.cds-test/;
+    my $cmd = "perl $esl_test_cds_script -incompare -subset $fa_file > $cds_test_output";
+    runCommand($cmd, 0);
+
+    # now parse the output
+    open(IN, $cds_test_output) || die "ERROR unable to open freshly created file $cds_test_output for reading";
+    while(my $line = <IN>) { 
+      chomp $line;
+      ##protein-accession  nt-accession  mincoord  maxcoord  tr-len  nexon  str  incomplete?  start   num-Ns  num-oth     T1   T2   T3   T4   T5   T6   T7   T8   T9  pass/fail
+      #CAD62370.1          AJ539138          1092      8090    6999      1    +           no      1        1        1      0    0    0    0    0    0    0    0    0    pass     
+      if($line !~ m/^\#/ && $line =~ m/\s+fail/) { 
+        if($line =~ /\S+\s+(\S+)/) { 
+          $to_purge_H{$1} = 1;
+        }
+        else { 
+          die "ERROR unable to parse esl_test_cds_translate_vs_fetch.pl output line $line"; 
+        }
+      }
+    }
+  } # end of 'foreach my $fa_file (@purged1_file_A)'
+  # now we have a full list of sequences to purge in %to_purge_H
+  # go back through each file an remove any sequences in %to_purge_H
+  foreach my $fa_file (@purged1_file_A) { 
+    my $output_fa_file = $fa_file;
+    if($output_fa_file =~ s/\.purged1\./.purged2./) { 
+      my $output_plist_file = $output_fa_file;
+      $output_plist_file =~ s/\.fa/\.list/;
+      my ($nkept, $npurged) = purgeSeqs($fa_file, $output_fa_file, $output_plist_file, \%to_purge_H, \@purged2_file_A, \@purged2_output_A);
+    }
+    else { die "ERROR round 2 purging $fa_file file name unparseable"; }
+  }
+}
+
 
 # go back and identify singletons and modify output lines for singletons
 my @act_singleton_A = ();
@@ -603,10 +638,19 @@ print("# The same genome but with CDS #2 on the negative strand would have a str
 print("#\n");
 print("###############################################################\n"); 
 
-if(scalar(@purge_output_A) > 0) { 
+if(scalar(@purged1_output_A) > 0) { 
   printf("#\n");
   printf("# Newly created fasta files after purging sequences with >= 1 anomaly.\n");
-  foreach my $line (@purge_output_A) { 
+  foreach my $line (@purged1_output_A) { 
+    print $line; 
+  }
+  printf("#\n");
+  print("###############################################################\n"); 
+}
+if(scalar(@purged2_output_A) > 0) { 
+  printf("#\n");
+  printf("# Newly created fasta files after purging sequences that had 0 anomalies but failed >= 1 CDS tests.\n");
+  foreach my $line (@purged2_output_A) { 
     print $line; 
   }
   printf("#\n");
@@ -910,4 +954,112 @@ sub check_a9 {
   my $ret_val = ($min_idx == 0) ? 0 : 1;
 
   return ($ret_val, $min_idx);
+}
+
+# Subroutine: runCommand()
+# Args:       $cmd:            command to run, with a "system" command;
+#             $be_verbose:     '1' to output command to stdout before we run it, '0' not to
+#
+# Returns:    amount of time the command took, in seconds
+# Dies:       if $cmd fails
+
+sub runCommand {
+  my $sub_name = "runCommand()";
+  my $nargs_exp = 2;
+
+  my ($cmd, $be_verbose) = @_;
+
+  if($be_verbose) { 
+    print ("Running cmd: $cmd\n"); 
+  }
+
+  my ($seconds, $microseconds) = gettimeofday();
+  my $start_time = ($seconds + ($microseconds / 1000000.));
+  system($cmd);
+  ($seconds, $microseconds) = gettimeofday();
+  my $stop_time = ($seconds + ($microseconds / 1000000.));
+
+  if($? != 0) { die "ERROR command failed:\n$cmd\n"; }
+
+  return ($stop_time - $start_time);
+}
+
+# Subroutine: purgeSeqs()
+# Synopsis:   Given an input sequence file and a hash of sequence names that may or may not
+#             be in the input file, create a new sequence file with all sequences from 
+#             the input file except those that have names that exist as keys in the hash.
+#             If $out_file_AR is defined push the output file (if it has >= 1 seqs)
+#             to @{$out_file_AR} and remove it if it has 0 seqs. 
+#             If $out_text_AR is defined push an informative message about the file to that
+#             array.
+#
+# Args:       $input_fa_file:     fasta file to read, we'll output some of these seqs to a new file
+#             $output_fa_file:    fasta file to create, with a subset of the seqs in $input_fa_file
+#             $output_plist_file: text file to create with a list of sequences removed
+#             $to_purge_HR:       ref to hash of sequences to remove (purge) from $input_fa_file
+#                                 key: <seqname>, value: '1' (or any defined value).
+#             $out_file_AR:       ref to array of output file names to add to if we create a non-empty file here
+#             $out_text_AR:       ref to array of text describing the output file we created
+#                                 (or deleted if if has 0 seqs).
+# Returns:    2 values:
+#               $nkept:   number of sequences from $input_fa_file written to $output_fa_file
+#               $npurged: number of sequences removed from $input_fa_file
+# Dies:       if we have a problem reading the file $input_fa_file
+
+sub purgeSeqs {
+  my $sub_name = "purgeSeqs()";
+  my $nargs_exp = 3;
+  
+  my ($input_fa_file, $output_fa_file, $output_plist_file, $to_purge_HR, $out_file_AR, $out_text_AR) = @_;
+
+  my $nkept   = 0;
+  my $npurged = 0;
+
+  open(OUTFA, ">" . $output_fa_file) || die "ERROR unable to open $output_fa_file for writing"; 
+  open(OUTPL, ">" . $output_plist_file) || die "ERROR unable to open $output_plist_file for writing"; 
+  my $sqfile = Bio::Easel::SqFile->new({ fileLocation => $input_fa_file });
+  my $nseq = $sqfile->nseq_ssi;
+  # check each sequence to see if it should be purged, if so, purge it
+  for(my $i = 1; $i <= $nseq; $i++) { 
+    my $seq = $sqfile->fetch_consecutive_seqs(1, "", 80, undef); # get the next sequence in the file
+    if($seq =~ /^\>(\S+)\s+/) { 
+      my $name = $1;
+      if(! exists $to_purge_H{$name}) { 
+        print OUTFA $seq; # if it is not in the purge list, output it to OUTFA
+        $nkept++;
+      }
+      else { 
+        print OUTPL $name . "\n";
+        $npurged++; 
+      }
+    }
+    else { 
+      die "ERROR unable to determine name for sequence $i in file $input_fa_file";
+    }
+  }
+  $sqfile->close_sqfile;
+  if(-e $input_fa_file . ".ssi") { unlink $input_fa_file . ".ssi"; } # clean up the index file
+  close(OUTFA);
+  close(OUTPL);
+
+
+  if($nkept == 0) { 
+    if($npurged == 0) { die "ERROR didn't read any sequences in file $input_fa_file"; }
+    if(defined $out_text_AR) { 
+      push(@{$out_text_AR}, sprintf("# All %4d sequence(s) in $input_fa_file were purged [no output fasta file created]\n", $npurged));  
+    }
+    if(-e $output_fa_file) { 
+      if(-s $output_fa_file) { die "ERROR didn't write any sequences to $output_fa_file, but it is not empty"; }
+      unlink $output_fa_file;
+    }
+  }
+  else { # we did output >= 1 sequences to $output_fa_file
+    if(defined $out_text_AR) { 
+      push(@{$out_text_AR}, sprintf("# Created file $output_fa_file [%4d sequences kept; %4d sequences purged]\n", $nkept, $npurged));
+    }
+    if(defined $out_file_AR) { 
+      push(@{$out_file_AR}, $output_fa_file);
+    }
+  }
+  return ($nkept, $npurged);
 }
