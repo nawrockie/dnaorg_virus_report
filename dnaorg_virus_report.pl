@@ -74,7 +74,7 @@ my $opts_used_short = "";
 my $opts_used_long  = "";
 if($do_purge) { 
   $opts_used_short .= "-purge ";
-  $opts_used_long  .= "# option:  purging gene seqs from anomalous/test failing seqs from CDS files [-purge]\n";
+  $opts_used_long  .= "# option:  purging gene seqs from anomalous/test failing seqs from sequence files [-purge]\n";
 }
 if($do_purge_anom_only) { 
   $opts_used_short .= "-panom ";
@@ -476,9 +476,18 @@ for(my $p = 1; $p <= 2; $p++) {
         if($p == 2) { # only do this on the second pass
           my $fa_file = $line;
           chomp $fa_file;
+          my $have_fa_file = 0;
+          # Fetching 315 full genome sequences for class  1 ... done. [Hepatitis-C_r9.NC_004102/Hepatitis-C_r9.NC_004102.c1.fg.fa]
           # Fetching 425 CDS sequences for class  1 gene  1 ... done. [FMDV_r26.NC_004004/FMDV_r26.NC_004004.c1.g1.fa]
           if($fa_file =~ s/^\# Fetching.+CDS sequences.+done.\s+\[//) { 
             $fa_file =~ s/\]//;
+            $have_fa_file = 1;
+          }
+          elsif($fa_file =~ s/^\# Fetching.+full genome sequences for.+done.\s+\[//) { 
+            $fa_file =~ s/\]//;
+            $have_fa_file = 1;
+          }
+          if($have_fa_file) { 
             my $output_fa_file    = $fa_file; 
             my $output_plist_file = $fa_file; 
             if($output_fa_file !~ m/\.fa$/) { die "ERROR $fa_file does not end in .fa"; }
@@ -509,26 +518,28 @@ for(my $p = 1; $p <= 2; $p++) {
 if($do_purge && (! $do_purge_anom_only)) { 
   %to_purge_H = (); # reinitialize this hash, we'll fill it with names of sequences to remove in round 2
   foreach my $fa_file (@purged1_file_A) { 
-    my $cds_test_output = $fa_file;
-    $cds_test_output =~ s/\.fa$/\.cds-test/;
-    my $cmd = "perl $esl_test_cds_script -incompare -subset $fa_file > $cds_test_output";
-    runCommand($cmd, 0);
-
-    # now parse the output
-    open(IN, $cds_test_output) || die "ERROR unable to open freshly created file $cds_test_output for reading";
-    while(my $line = <IN>) { 
-      chomp $line;
-      ##protein-accession  nt-accession  mincoord  maxcoord  tr-len  nexon  str  incomplete?  start   num-Ns  num-oth     T1   T2   T3   T4   T5   T6   T7   T8   T9  pass/fail
-      #CAD62370.1          AJ539138          1092      8090    6999      1    +           no      1        1        1      0    0    0    0    0    0    0    0    0    pass     
-      if($line !~ m/^\#/ && $line =~ m/\s+fail/) { 
-        if($line =~ /\S+\s+(\S+)/) { 
-          $to_purge_H{$1} = 1;
-        }
-        else { 
-          die "ERROR unable to parse esl_test_cds_translate_vs_fetch.pl output line $line"; 
+    if($fa_file !~ m/\.fg\.purged1\./) { # skip the full genomes, we can't do CDS tests on those
+      my $cds_test_output = $fa_file;
+      $cds_test_output =~ s/\.fa$/\.cds-test/;
+      my $cmd = "perl $esl_test_cds_script -incompare -subset $fa_file > $cds_test_output";
+      runCommand($cmd, 0);
+      
+      # now parse the output
+      open(IN, $cds_test_output) || die "ERROR unable to open freshly created file $cds_test_output for reading";
+      while(my $line = <IN>) { 
+        chomp $line;
+        ##protein-accession  nt-accession  mincoord  maxcoord  tr-len  nexon  str  incomplete?  start   num-Ns  num-oth     T1   T2   T3   T4   T5   T6   T7   T8   T9  pass/fail
+        #CAD62370.1          AJ539138          1092      8090    6999      1    +           no      1        1        1      0    0    0    0    0    0    0    0    0    pass     
+        if($line !~ m/^\#/ && $line =~ m/\s+fail/) { 
+          if($line =~ /\S+\s+(\S+)/) { 
+            $to_purge_H{$1} = 1;
+          }
+          else { 
+            die "ERROR unable to parse esl_test_cds_translate_vs_fetch.pl output line $line"; 
+          }
         }
       }
-    }
+    } # end of 'if($fa_file !~ m/\.fg\.purged1\./)'
   } # end of 'foreach my $fa_file (@purged1_file_A)'
   # now we have a full list of sequences to purge in %to_purge_H
   # go back through each file an remove any sequences in %to_purge_H
@@ -1024,7 +1035,10 @@ sub purgeSeqs {
     my $seq = $sqfile->fetch_consecutive_seqs(1, "", 80, undef); # get the next sequence in the file
     if($seq =~ /^\>(\S+)\s+/) { 
       my $name = $1;
-      if(! exists $to_purge_H{$name}) { 
+      # strip the version from the name, which *may* be in "accession.version" format, e.g.: KF693782.1
+      my $name_accn_only = $name;
+      stripVersion(\$name_accn_only);
+      if(! exists $to_purge_H{$name_accn_only}) { 
         print OUTFA $seq; # if it is not in the purge list, output it to OUTFA
         $nkept++;
       }
@@ -1055,11 +1069,27 @@ sub purgeSeqs {
   }
   else { # we did output >= 1 sequences to $output_fa_file
     if(defined $out_text_AR) { 
-      push(@{$out_text_AR}, sprintf("# Created file $output_fa_file [%4d sequences kept; %4d sequences purged]\n", $nkept, $npurged));
+      push(@{$out_text_AR}, sprintf("# Created file $output_fa_file [%4d sequences kept; %4d sequences purged%s]\n", $nkept, $npurged, (defined $output_plist_file) ? ", listed in $output_plist_file" : ""));
     }
     if(defined $out_file_AR) { 
       push(@{$out_file_AR}, $output_fa_file);
     }
   }
   return ($nkept, $npurged);
+}
+
+# Subroutine: stripVersion()
+# Purpose:    Given a ref to an accession.version string, remove the version.
+# Args:       $accver_R: ref to accession version string
+# Returns:    Nothing, $$accver_R has version removed
+sub stripVersion {
+  my $sub_name  = "stripVersion()";
+  my $nargs_exp = 1;
+  if(scalar(@_) != $nargs_exp) { die "ERROR $sub_name entered with wrong number of input args"; }
+  
+  my ($accver_R) = (@_);
+
+  $$accver_R =~ s/\.[0-9]*$//; # strip version
+
+  return;
 }
